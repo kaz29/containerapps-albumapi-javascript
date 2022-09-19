@@ -123,10 +123,27 @@ jobs:
               -n ${{ env.DEPLOYMENT_NAME }} \
               --query properties.outputs.fqdn.value \
               --out tsv`
-            echo $FQDN
             export BASE_NAME=${FQDN#*.}
             echo "NEW_REVISION_FQDN=${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME" >> $GITHUB_ENV
 
       - name: Show env vars
         run: |
           echo ${{ env.NEW_REVISION_FQDN }}
+  flip:
+    runs-on: ubuntu-18.04
+    needs: deploy
+    environment:
+      name: flip
+      url: ${{ env.NEW_REVISION_FQDN }}
+    steps:
+      - name: Flip revisions
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az containerapp ingress traffic set \
+              -g ${{ env.RESOURCE_GROUP_NAME }} \
+              -n ${{ env.DEPLOYMENT_NAME }} \
+              --revision-weight \
+                ${{ env.REVISION_SUFFIX }}=100 \
+                ${{ env.PREVIOUS_REVISION_NAME }}=0
+
