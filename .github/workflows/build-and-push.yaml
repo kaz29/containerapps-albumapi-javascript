@@ -132,19 +132,14 @@ jobs:
               --query properties.outputs.fqdn.value \
               --out tsv`
             export BASE_NAME=${FQDN#*.}
-            echo "NEW_REVISION_FQDN=${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME" >> $GITHUB_ENV
             echo "::set-output name=fqdn::${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME"
-
-      - name: Show env vars
-        run: |
-          echo ${{ env.NEW_REVISION_FQDN }}
 
   flip:
     runs-on: ubuntu-18.04
     needs: deploy
     environment:
       name: flip
-      url: ${{ needs.deploy.outputs.fqdn }}
+      url: https://${{ needs.deploy.outputs.fqdn }}
     steps:
       - name: Azure Login
         uses: azure/login@v1
