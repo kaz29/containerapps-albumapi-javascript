@@ -8,6 +8,8 @@ on:
 env:
   ACR_NAME: acaalbumskaz29
   API_NAME: album-api
+  RESOURCE_GROUP_NAME: album-containerapps
+  CONTAINER_APPS_ENVIRONMENT: my-containerapps-env
 
 jobs:
   build:
@@ -23,7 +25,6 @@ jobs:
         uses: docker/setup-buildx-action@v1
 
       - name: Log in to container registry
-        # 認証処理を行うためのアクション
         uses: docker/login-action@v1
         with:
           registry: ${{ env.ACR_NAME }}.azurecr.io
@@ -34,11 +35,58 @@ jobs:
         run: | 
           echo "TAG=${GITHUB_REF##*/}" >> $GITHUB_ENV
 
-      - run: echo ${{ env.TAG }}
-
       - name: Build and push container image to registry
         uses: docker/build-push-action@v2
         with:
           push: true
           tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.ACR_NAME }}:${{ env.TAG }}
           context: ./src
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: deploy-artifact
+          path: bicep/*
+
+  deploy:
+    runs-on: ubuntu-18.04
+    needs: build
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: deploy-artifact
+
+      - name: Set tag name to env
+        run: | 
+          echo "TAG=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      # タグ名から.(ドット)を除去する
+      - name: Set revision suffix name to env
+        run: | 
+          echo "REVISION_SUFFIX=v${TAG//./}" >> $GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az extension add --upgrade --name containerapp
+
+            az deployment group create \
+                -f ./deploy.bicep \
+                -g ${{ env.RESOURCE_GROUP_NAME }} \
+                --parameters \
+                    environmentName=${{ env.CONTAINER_APPS_ENVIRONMENT }} \
+                    containerAppName=${{ env.API_NAME }} \
+                    imageName=${{ env.API_NAME }} \
+                    tagName=${{ env.TAG }} \
+                    revisionSuffix=${{ env.REVISION_SUFFIX }} \
+                    oldRevisionSuffix=${{ env.REVISION_SUFFIX }} \
+                    acrUserName=${{ secrets.CONTAINER_REGISTRY_USERNAME }} \
+                    acrSecret=${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
