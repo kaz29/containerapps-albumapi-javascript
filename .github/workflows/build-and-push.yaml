@@ -126,4 +126,7 @@ jobs:
             echo $FQDN
             export BASE_NAME=${FQDN#*.}
             echo "NEW_REVISION_FQDN=${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME" >> $GITHUB_ENV
-            echo ${{ env.NEW_REVISION_FQDN }}
+
+      - name: Show env vars
+        run: |
+          echo ${{ env.NEW_REVISION_FQDN }}
