@@ -72,6 +72,28 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Get Previous revision name
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az extension add --upgrade --name containerapp
+            export REVISIONS=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[].name' --out tsv`
+            echo "REVISION_NUM=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[] | length(@)' --out tsv`" >> $GITHUB_ENV
+            echo "PREVIOUS_REVISION_NAME=${REVISIONS##*--}" >> $GITHUB_ENV
+            echo $REVISIONS
+
+      - name: Show env vars
+        run: |
+          echo ${{ env.REVISION_NUM }}
+          echo ${{ env.PREVIOUS_REVISION_NAME }}
+
+      - name: Active revision count check
+        if: ${{ env.REVISION_NUM != 1 }} 
+        uses: actions/github-script@v3
+        with:
+          script: |
+              core.setFailed('Multiple revisions are active!')
+
       - name: Deploy to containerapp
         uses: azure/CLI@v1
         with:
