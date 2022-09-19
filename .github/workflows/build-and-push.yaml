@@ -156,8 +156,7 @@ jobs:
           inlineScript: |
             az containerapp ingress traffic set \
               -g ${{ env.RESOURCE_GROUP_NAME }} \
-              -n ${{ env.DEPLOYMENT_NAME }} \
+              -n ${{ env.API_NAME }} \
               --revision-weight \
-                ${{ needs.deploy.outputs.revision_suffix }}=100 \
-                ${{ needs.deploy.outputs.previous_revision_suffix }}=0
-
+                "${{ env.API_NAME }}--${{ needs.deploy.outputs.revision_suffix }}"=100 \
+                "${{ env.API_NAME }}--${{ needs.deploy.outputs.previous_revision_suffix }}"=0
