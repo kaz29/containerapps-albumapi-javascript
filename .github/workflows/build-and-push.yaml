@@ -10,6 +10,7 @@ env:
   API_NAME: album-api
   RESOURCE_GROUP_NAME: album-containerapps
   CONTAINER_APPS_ENVIRONMENT: my-containerapps-env
+  DEPLOYMENT_NAME: container-apps
 
 jobs:
   build:
@@ -112,3 +113,13 @@ jobs:
                     oldRevisionSuffix=${{ env.PREVIOUS_REVISION_NAME }} \
                     acrUserName=${{ secrets.CONTAINER_REGISTRY_USERNAME }} \
                     acrSecret=${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+
+      - name: Get fqdn
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az deployment group show \
+              -g ${{ env.RESOURCE_GROUP_NAME }} \
+              -n ${{ env.DEPLOYMENT_NAME }} \
+              --query properties.outputs.fqdn.value \
+              --out tsv
