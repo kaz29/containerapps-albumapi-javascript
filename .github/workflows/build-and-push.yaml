@@ -59,6 +59,7 @@ jobs:
     outputs:
       revision_suffix: ${{ steps.revision_suffix.outputs.revision_suffix }}
       previous_revision_suffix: ${{ steps.previous_revision_suffix.outputs.previous_revision_suffix }}
+      fqdn: ${{ steps.fqdn.outputs.fqdn }}
     steps:
       - run: echo ${{ needs.build.outputs.tag }}
       - name: Download artifact
@@ -126,6 +127,7 @@ jobs:
                     acrSecret=${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
 
       - name: Get new revision's fqdn
+        id: fqdn
         uses: azure/CLI@v1
         with:
           inlineScript: |
@@ -136,6 +138,7 @@ jobs:
               --out tsv`
             export BASE_NAME=${FQDN#*.}
             echo "NEW_REVISION_FQDN=${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME" >> $GITHUB_ENV
+            echo "::set-output name=fqdn::${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME"
 
       - name: Show env vars
         run: |
@@ -145,7 +148,7 @@ jobs:
     needs: deploy
     environment:
       name: flip
-      url: ${{ env.NEW_REVISION_FQDN }}
+      url: ${{ needs.deploy.outputs.fqdn }}
     steps:
       - name: Flip revisions
         uses: azure/CLI@v1
