@@ -154,6 +154,8 @@ jobs:
         uses: azure/CLI@v1
         with:
           inlineScript: |
+            az extension add --upgrade --name containerapp
+
             az containerapp ingress traffic set \
               -g ${{ env.RESOURCE_GROUP_NAME }} \
               -n ${{ env.API_NAME }} \
