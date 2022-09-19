@@ -41,5 +41,4 @@ jobs:
         with:
           push: true
           tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.ACR_NAME }}:${{ env.TAG }}
-          file: ./Dockerfile
           context: ./src
