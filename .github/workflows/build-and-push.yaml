@@ -35,11 +35,10 @@ jobs:
           password: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
 
       - id: tag
-        run: echo "::set-output tag=${GITHUB_REF##*/}"
-
-      - name: Set tag name to env
+        name: Set tag name to env
         run: | 
           echo "TAG=${GITHUB_REF##*/}" >> $GITHUB_ENV
+          echo "::set-output name=tag::${GITHUB_REF##*/}"
 
       - name: Build and push container image to registry
         uses: docker/build-push-action@v2
@@ -76,7 +75,7 @@ jobs:
         id: revision_suffix
         run: | 
           echo "REVISION_SUFFIX=${TAG//./}" >> $GITHUB_ENV
-          echo "::set-output revision_suffix=${TAG//./}"
+          echo "::set-output name=revision_suffix::${TAG//./}"
 
       - name: Azure Login
         uses: azure/login@v1
@@ -93,7 +92,7 @@ jobs:
             echo "REVISION_NUM=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[] | length(@)' --out tsv`" >> $GITHUB_ENV
             echo "PREVIOUS_REVISION_NAME=${REVISIONS##*--}" >> $GITHUB_ENV
             echo $REVISIONS
-            echo "::set-output previous_revision_suffix=${REVISIONS##*--}"
+            echo "::set-output name=previous_revision_suffix::${REVISIONS##*--}"
 
       - name: Show env vars
         run: |
