@@ -68,7 +68,7 @@ resource containerApp 'Microsoft.App/containerApps@2022-03-01' = {
           image: '${acrUserName}.azurecr.io/${imageName}:${tagName}'
           name: containerAppName
           resources: {
-            cpu: '0.25'
+            cpu: any('0.25')
             memory: '0.5Gi'
           }
         }

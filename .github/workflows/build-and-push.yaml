@@ -39,7 +39,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.ACR_NAME }}:${{ env.TAG }}
+          tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.API_NAME }}:${{ env.TAG }}
           context: ./src
 
       - name: Upload artifact
