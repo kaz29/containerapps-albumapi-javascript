@@ -65,7 +65,7 @@ jobs:
       # タグ名から.(ドット)を除去する
       - name: Set revision suffix name to env
         run: | 
-          echo "REVISION_SUFFIX=v${TAG//./}" >> $GITHUB_ENV
+          echo "REVISION_SUFFIX=${TAG//./}" >> $GITHUB_ENV
 
       - name: Azure Login
         uses: azure/login@v1
@@ -109,6 +109,6 @@ jobs:
                     imageName=${{ env.API_NAME }} \
                     tagName=${{ env.TAG }} \
                     revisionSuffix=${{ env.REVISION_SUFFIX }} \
-                    oldRevisionSuffix=${{ env.REVISION_SUFFIX }} \
+                    oldRevisionSuffix=${{ env.PREVIOUS_REVISION_NAME }} \
                     acrUserName=${{ secrets.CONTAINER_REGISTRY_USERNAME }} \
                     acrSecret=${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
