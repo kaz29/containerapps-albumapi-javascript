@@ -50,8 +50,11 @@ jobs:
           path: bicep/*
 
   deploy:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     needs: build
+    environment:
+      name: build
+      url: https://${{ steps.fqdn.outputs.fqdn }}
     outputs:
       revision_suffix: ${{ steps.revision_suffix.outputs.revision_suffix }}
       previous_revision_suffix: ${{ steps.previous_revision_suffix.outputs.previous_revision_suffix }}
@@ -135,7 +138,7 @@ jobs:
             echo "::set-output name=fqdn::${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME"
 
   flip:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     needs: deploy
     environment:
       name: flip
@@ -159,7 +162,7 @@ jobs:
                 ${{ env.API_NAME }}--${{ needs.deploy.outputs.previous_revision_suffix }}=0
 
   deactivate:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     needs: [flip, deploy]
     environment:
       name: deactivate
