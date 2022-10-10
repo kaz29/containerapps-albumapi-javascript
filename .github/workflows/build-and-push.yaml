@@ -1,54 +1,177 @@
 name: Build and Push
 on:
   push:
-    branches: [main]
     # Publish semver tags as releases.
     tags: ["v*.*.*"]
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  ACR_NAME: acaalbumskaz29
+  API_NAME: album-api
+  RESOURCE_GROUP_NAME: album-containerapps
+  CONTAINER_APPS_ENVIRONMENT: my-containerapps-env
+  DEPLOYMENT_NAME: container-apps
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions: 
       contents: read
-      packages: write 
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Login against a Docker registry except on PR
-      # https://github.com/docker/login-action
-      - name: Log into registry ${{ env.REGISTRY }}
-        if: github.event_name != 'pull_request'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
         uses: docker/login-action@v1
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN}}
+          registry: ${{ env.ACR_NAME }}.azurecr.io
+          username: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+          password: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
 
-      # Extract metadata (tags, labels) for Docker
-      # https://github.com/docker/metadata-action
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v3
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=ref,event=branch
-            type=sha
-      # Build and push Docker image with Buildx (don't push on PR)
-      # https://github.com/docker/build-push-action
-      - name: Build and push Docker image
+      - name: Set tag name to env
+        run: | 
+          echo "TAG=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      - name: Build and push container image to registry
         uses: docker/build-push-action@v2
         with:
+          push: true
+          tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.API_NAME }}:${{ env.TAG }}
           context: ./src
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: deploy-artifact
+          path: bicep/*
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: build
+      url: https://${{ steps.fqdn.outputs.fqdn }}
+    outputs:
+      revision_suffix: ${{ steps.revision_suffix.outputs.revision_suffix }}
+      previous_revision_suffix: ${{ steps.previous_revision_suffix.outputs.previous_revision_suffix }}
+      fqdn: ${{ steps.fqdn.outputs.fqdn }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: deploy-artifact
+
+      - name: Set tag name to env
+        run: | 
+          echo "TAG=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      # タグ名から.(ドット)を除去する
+      - name: Set revision suffix name to env
+        id: revision_suffix
+        run: | 
+          echo "REVISION_SUFFIX=${TAG//./}" >> $GITHUB_ENV
+          echo "::set-output name=revision_suffix::${TAG//./}"
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get Previous revision name
+        id: previous_revision_suffix
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az extension add --upgrade --name containerapp
+            export REVISIONS=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[].name' --out tsv`
+            echo "REVISION_NUM=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[] | length(@)' --out tsv`" >> $GITHUB_ENV
+            echo "PREVIOUS_REVISION_NAME=${REVISIONS##*--}" >> $GITHUB_ENV
+            echo "::set-output name=previous_revision_suffix::${REVISIONS##*--}"
+
+      - name: Active revision count check
+        if: ${{ env.REVISION_NUM != 1 }} 
+        uses: actions/github-script@v3
+        with:
+          script: |
+              core.setFailed('Multiple revisions are active!')
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az extension add --upgrade --name containerapp
+
+            az deployment group create \
+                -f ./deploy.bicep \
+                -g ${{ env.RESOURCE_GROUP_NAME }} \
+                --parameters \
+                    environmentName=${{ env.CONTAINER_APPS_ENVIRONMENT }} \
+                    containerAppName=${{ env.API_NAME }} \
+                    imageName=${{ env.API_NAME }} \
+                    tagName=${{ env.TAG }} \
+                    revisionSuffix=${{ env.REVISION_SUFFIX }} \
+                    oldRevisionSuffix=${{ env.PREVIOUS_REVISION_NAME }} \
+                    acrUserName=${{ secrets.CONTAINER_REGISTRY_USERNAME }} \
+                    acrSecret=${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+
+      - name: Get new revision's fqdn
+        id: fqdn
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            export FQDN=`az deployment group show \
+              -g ${{ env.RESOURCE_GROUP_NAME }} \
+              -n ${{ env.DEPLOYMENT_NAME }} \
+              --query properties.outputs.fqdn.value \
+              --out tsv`
+            export BASE_NAME=${FQDN#*.}
+            echo "::set-output name=fqdn::${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME"
+
+  flip:
+    runs-on: ubuntu-latest
+    needs: deploy
+    environment:
+      name: flip
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Flip revisions
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az extension add --upgrade --name containerapp
+
+            az containerapp ingress traffic set \
+              -g ${{ env.RESOURCE_GROUP_NAME }} \
+              -n ${{ env.API_NAME }} \
+              --revision-weight \
+                ${{ env.API_NAME }}--${{ needs.deploy.outputs.revision_suffix }}=100 \
+                ${{ env.API_NAME }}--${{ needs.deploy.outputs.previous_revision_suffix }}=0
+
+  deactivate:
+    runs-on: ubuntu-latest
+    needs: [flip, deploy]
+    environment:
+      name: deactivate
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Deactivate previous revision
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az extension add --upgrade --name containerapp
+
+            az containerapp revision deactivate \
+              -g ${{ env.RESOURCE_GROUP_NAME }} \
+              -n ${{ env.API_NAME }} \
+              --revision \
+                ${{ env.API_NAME }}--${{ needs.deploy.outputs.previous_revision_suffix }}
