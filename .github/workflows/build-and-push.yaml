@@ -81,30 +81,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Get Previous revision name
-        id: previous_revision_suffix
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            az extension add --upgrade --name containerapp
-            export REVISIONS=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[].name' --out tsv`
-            echo "REVISION_NUM=`az containerapp revision list --resource-group ${{ env.RESOURCE_GROUP_NAME }} --name ${{ env.API_NAME }} --query '[] | length(@)' --out tsv`" >> $GITHUB_ENV
-            echo "PREVIOUS_REVISION_NAME=${REVISIONS##*--}" >> $GITHUB_ENV
-            echo $REVISIONS
-            echo "::set-output name=previous_revision_suffix::${REVISIONS##*--}"
-
-      - name: Show env vars
-        run: |
-          echo ${{ env.REVISION_NUM }}
-          echo ${{ env.PREVIOUS_REVISION_NAME }}
-
-      - name: Active revision count check
-        if: ${{ env.REVISION_NUM != 1 }} 
-        uses: actions/github-script@v3
-        with:
-          script: |
-              core.setFailed('Multiple revisions are active!')
-
       - name: Deploy to containerapp
         uses: azure/CLI@v1
         with:
@@ -120,65 +96,6 @@ jobs:
                     imageName=${{ env.API_NAME }} \
                     tagName=${{ env.TAG }} \
                     revisionSuffix=${{ env.REVISION_SUFFIX }} \
-                    oldRevisionSuffix=${{ env.PREVIOUS_REVISION_NAME }} \
+                    oldRevisionSuffix=${{ env.REVISION_SUFFIX }} \
                     acrUserName=${{ secrets.CONTAINER_REGISTRY_USERNAME }} \
                     acrSecret=${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
-
-      - name: Get new revision's fqdn
-        id: fqdn
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            export FQDN=`az deployment group show \
-              -g ${{ env.RESOURCE_GROUP_NAME }} \
-              -n ${{ env.DEPLOYMENT_NAME }} \
-              --query properties.outputs.fqdn.value \
-              --out tsv`
-            export BASE_NAME=${FQDN#*.}
-            echo "::set-output name=fqdn::${{ env.API_NAME }}--${{ env.REVISION_SUFFIX }}.$BASE_NAME"
-
-  flip:
-    runs-on: ubuntu-latest
-    needs: deploy
-    environment:
-      name: flip
-      url: https://${{ needs.deploy.outputs.fqdn }}
-    steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Flip revisions
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            az extension add --upgrade --name containerapp
-
-            az containerapp ingress traffic set \
-              -g ${{ env.RESOURCE_GROUP_NAME }} \
-              -n ${{ env.API_NAME }} \
-              --revision-weight \
-                ${{ env.API_NAME }}--${{ needs.deploy.outputs.revision_suffix }}=100 \
-                ${{ env.API_NAME }}--${{ needs.deploy.outputs.previous_revision_suffix }}=0
-
-  deactivate:
-    runs-on: ubuntu-latest
-    needs: [flip, deploy]
-    environment:
-      name: deactivate
-    steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Deactivate previous revision
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            az extension add --upgrade --name containerapp
-
-            az containerapp revision deactivate \
-              -g ${{ env.RESOURCE_GROUP_NAME }} \
-              -n ${{ env.API_NAME }} \
-              --revision \
-                ${{ env.API_NAME }}--${{ needs.deploy.outputs.previous_revision_suffix }}
